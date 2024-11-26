@@ -85,6 +85,10 @@ export default function Home() {
       
       const spotifyApi = await getSpotifyApi();
       const token = await spotifyApi.getAccessToken();
+      
+      if (!token) {
+        throw new Error('Failed to get access token');
+      }
 
       let tracks;
       let label = '';

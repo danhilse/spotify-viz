@@ -107,6 +107,7 @@ const AudioFeaturesViz: React.FC<AudioFeaturesVizProps> = ({
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const formatValue = (song: Song, feature: Feature): string => {
     switch (feature) {
       case 'duration':

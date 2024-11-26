@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Group } from '@visx/group';
 import { scaleLinear } from '@visx/scale';
 import { Text } from '@visx/text';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+// import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
 interface Song {
   id: string;
@@ -45,7 +45,10 @@ const normalizeValue = (song: Song | Record<Feature, number>, feature: Feature):
     switch (feature) {
       case 'duration':
         const maxDuration = 300000;
-        return (song as Song).duration_ms ? (song as Song).duration_ms / maxDuration : song[feature];
+        if ('duration_ms' in song) {
+          return song.duration_ms / maxDuration;
+        }
+        return song.duration;
       case 'loudness':
         const value = (song as Song).loudness ?? song[feature];
         return (value + 60) / 60;
@@ -97,6 +100,7 @@ const formatFeatureLabel = (feature: Feature): string => {
 };
 
 const ComparisonViz: React.FC<ComparisonVizProps> = ({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   width = 900,
   height = 800,
   leftSongs = [],
@@ -376,7 +380,16 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
 };
 
 // Helper components
-const SongLegendItem = ({ song, index, isLeft, isHovered, onHover, getColor }) => (
+interface SongLegendItemProps {
+  song: Song;
+  index: number;
+  isLeft: boolean;
+  isHovered: boolean;
+  onHover: (id: string | null) => void;
+  getColor: (index: number, isLeft: boolean, isHovered: boolean) => string;
+}
+
+const SongLegendItem = ({ song, index, isLeft, isHovered, onHover, getColor }: SongLegendItemProps) => (
   <div 
     className={`flex flex-col gap-1 py-2 px-2 rounded transition-colors ${
       isHovered ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5'
@@ -396,7 +409,18 @@ const SongLegendItem = ({ song, index, isLeft, isHovered, onHover, getColor }) =
   </div>
 );
 
-const SongPath = ({ song, index, isLeft, isHovered, onHover, generatePathCoordinates, getColor, opacities }) => (
+interface SongPathProps {
+  song: Song;
+  index: number;
+  isLeft: boolean;
+  isHovered: boolean;
+  onHover: (id: string | null) => void;
+  generatePathCoordinates: (song: Song) => string;
+  getColor: (index: number, isLeft: boolean, isHovered: boolean) => string;
+  opacities: { fill: number; stroke: number; hoverFill: number; hoverStroke: number; };
+}
+
+const SongPath = ({ song, index, isLeft, isHovered, onHover, generatePathCoordinates, getColor, opacities }: SongPathProps) => (
   <g>
     <path
       d={generatePathCoordinates(song)}

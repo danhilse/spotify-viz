@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { getSpotifyApi } from '@/lib/spotify';
-import type { Artist, Album } from '@spotify/web-api-ts-sdk';
+// import type { Artist, Album } from '@spotify/web-api-ts-sdk';
 import { Music, User } from 'lucide-react';
 
 
