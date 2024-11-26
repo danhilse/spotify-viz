@@ -1,10 +1,35 @@
-// src/app/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { UnifiedSearch } from '@/components/UnifiedSearch';
 import ComparisonViz from '@/components/ComparisonViz';
 import { getSpotifyApi } from '@/lib/spotify';
+
+interface AudioFeatures {
+  acousticness: number;
+  analysis_url: string;
+  danceability: number;
+  duration_ms: number;
+  energy: number;
+  id: string;
+  instrumentalness: number;
+  key: number;
+  liveness: number;
+  loudness: number;
+  mode: number;
+  speechiness: number;
+  tempo: number;
+  time_signature: number;
+  track_href: string;
+  type: string;
+  uri: string;
+  valence: number;
+}
+
+interface Track {
+  id: string;
+  name: string;
+}
 
 interface SongWithFeatures {
   id: string;
@@ -34,7 +59,7 @@ export default function Home() {
   const [rightError, setRightError] = useState('');
   const [rightLabel, setRightLabel] = useState('Set B');
 
-  const fetchAlbumTracks = async (albumId: string, token: string) => {
+  const fetchAlbumTracks = async (albumId: string, token: string): Promise<Track[]> => {
     const tracks = [];
     let url = `https://api.spotify.com/v1/albums/${albumId}/tracks?limit=50`;
     
@@ -90,7 +115,7 @@ export default function Home() {
         throw new Error('Failed to get access token');
       }
 
-      let tracks;
+      let tracks: Track[];
       let label = '';
       
       if (type === 'artist') {
@@ -121,8 +146,12 @@ export default function Home() {
       );
 
       // Get audio features and analysis in batches of 100 (API limit)
-      const audioFeaturesBatches = [];
-      const audioAnalysisBatches = [];
+      const audioFeaturesBatches: AudioFeatures[][] = [];
+      interface SpotifyTrack {
+        duration_ms: number;
+      }
+      const audioAnalysisBatches: SpotifyTrack[][] = [];
+      
       for (let i = 0; i < uniqueTracks.length; i += 100) {
         const batch = uniqueTracks.slice(i, i + 100);
         const trackIds = batch.map(track => track.id);
@@ -201,17 +230,6 @@ export default function Home() {
 
         {/* Visualization Container */}
         <div className="flex flex-col">
-          {/* <div className="text-center mb-4">
-            <h2 className="text-2xl font-semibold mb-2 text-gray-300">Audio Features Comparison</h2>
-            <p className="text-gray-400">
-              {leftSongs.length > 0 && rightSongs.length > 0 ? (
-                `Comparing ${leftSongs.length} songs from ${leftLabel} with ${rightSongs.length} songs from ${rightLabel}`
-              ) : (
-                'Search for artists or albums above to compare their audio features'
-              )}
-            </p>
-          </div> */}
-          
           <ComparisonViz
             leftSongs={leftSongs}
             rightSongs={rightSongs}
