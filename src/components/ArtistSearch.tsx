@@ -5,20 +5,29 @@ import type { Artist } from '@spotify/web-api-ts-sdk';
 
 interface ArtistSearchProps {
   onArtistSelect: (artistId: string) => void;
+  isLoading: boolean;
 }
 
-export const ArtistSearch: React.FC<ArtistSearchProps> = ({ onArtistSelect }) => {
+export const ArtistSearch: React.FC<ArtistSearchProps> = ({ onArtistSelect, isLoading }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedArtist, setSelectedArtist] = useState('');
   const [artists, setArtists] = useState<Artist[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // Clear artists when parent is loading
+  React.useEffect(() => {
+    if (isLoading) {
+      setArtists([]);
+    }
+  }, [isLoading]);
   
   // Close dropdown when clicking outside
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-        setArtists([]); // Close the dropdown
+        setArtists([]);
       }
     }
 
@@ -27,29 +36,35 @@ export const ArtistSearch: React.FC<ArtistSearchProps> = ({ onArtistSelect }) =>
   }, []);
 
   const searchArtists = async (query: string) => {
-    if (!query.trim()) {
+    if (!query.trim() || query === selectedArtist) {
       setArtists([]);
       return;
     }
 
     try {
-      setLoading(true);
+      setSearchLoading(true);
       setError('');
       const spotifyApi = await getSpotifyApi();
       const response = await spotifyApi.search(query, ['artist'], undefined, 10);
-      setArtists(response.artists.items);
+      if (!isLoading) {
+        setArtists(response.artists.items);
+      }
     } catch (err) {
       setError('Error searching for artists');
       console.error(err);
     } finally {
-      setLoading(false);
+      setSearchLoading(false);
     }
   };
 
   // Debounced search
   React.useEffect(() => {
+    if (isLoading || searchTerm === selectedArtist) {
+      return;
+    }
+
     const timeoutId = setTimeout(() => {
-      if (searchTerm) {
+      if (searchTerm && searchTerm !== selectedArtist) {
         searchArtists(searchTerm);
       } else {
         setArtists([]);
@@ -57,15 +72,20 @@ export const ArtistSearch: React.FC<ArtistSearchProps> = ({ onArtistSelect }) =>
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
+  }, [searchTerm, isLoading, selectedArtist]);
 
   const handleArtistSelect = (artist: Artist) => {
-    onArtistSelect(artist.id);
+    setSelectedArtist(artist.name);
     setSearchTerm(artist.name);
-    setArtists([]); // Close dropdown
-    // Remove focus from input
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
+    setArtists([]); // Clear results immediately
+    onArtistSelect(artist.id);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setSearchTerm(newValue);
+    if (newValue !== selectedArtist) {
+      setSelectedArtist(''); // Clear selected artist if search term changes
     }
   };
 
@@ -75,23 +95,28 @@ export const ArtistSearch: React.FC<ArtistSearchProps> = ({ onArtistSelect }) =>
         <input
           type="text"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onClick={() => searchTerm && searchArtists(searchTerm)} // Re-open dropdown when clicking input
+          onChange={handleInputChange}
+          onClick={() => {
+            if (searchTerm && searchTerm !== selectedArtist && !isLoading) {
+              searchArtists(searchTerm);
+            }
+          }}
           placeholder="Search for an artist..."
           className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-900 bg-white"
+          disabled={isLoading}
         />
-        {loading && (
+        {(searchLoading || isLoading) && (
           <div className="absolute right-3 top-2.5">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
           </div>
         )}
       </div>
 
-      {error && (
+      {error && !isLoading && (
         <div className="text-red-500 mt-2 text-sm">{error}</div>
       )}
 
-      {artists.length > 0 && (
+      {artists.length > 0 && !isLoading && (
         <div className="mt-2 bg-white rounded-lg shadow-lg border max-h-60 overflow-y-auto absolute w-full z-10">
           {artists.map((artist) => (
             <button

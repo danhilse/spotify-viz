@@ -1,8 +1,6 @@
-// src/components/AudioFeaturesViz.tsx
 import React, { useState } from 'react';
 import { Group } from '@visx/group';
 import { scaleLinear } from '@visx/scale';
-import { LineRadial, LineRadialCurve } from '@visx/shape';
 import { Text } from '@visx/text';
 
 interface Song {
@@ -14,6 +12,10 @@ interface Song {
   instrumentalness: number;
   liveness: number;
   valence: number;
+  duration_ms: number;
+  loudness: number;
+  tempo: number;
+  key: number;
 }
 
 interface AudioFeaturesVizProps {
@@ -22,161 +24,307 @@ interface AudioFeaturesVizProps {
   songs: Song[];
 }
 
-// Remove speechiness from features
 const FEATURES = [
-  'acousticness',
+  'tempo',
   'danceability',
   'energy',
+  'acousticness',
   'instrumentalness',
-  'liveness',
-  'valence'
+  'loudness',
+  'valence',
+//   'liveness',
+  'duration',
+//   'key'
 ] as const;
+
+// Warm color palette
+const COLORS = [
+    '#FF6B6B', // Coral red
+    '#FF8E72', // Salmon
+    '#FFA07A', // Light salmon
+    '#FFB347', // Orange
+    '#FFD700', // Gold
+  ];
 
 type Feature = (typeof FEATURES)[number];
 
+// Try different blend modes for different effects
+type BlendMode = 'screen' | 'plus-lighter' | 'lighten' | 'hard-light' | 'overlay';
+const BLEND_MODE: BlendMode = 'screen'; // Try changing this to experiment
+
+
+const getOpacityScale = (numTracks: number) => {
+    // More aggressive scaling for larger datasets
+    // Start with lower base opacity and use gentler power scaling
+    const baseOpacity = Math.max(0.008, 1 / Math.pow(numTracks, 0.6));
+    
+    return {
+      fill: baseOpacity * .4,      // Reduced fill opacity
+      stroke: baseOpacity * 1,    // Reduced stroke opacity
+      hoverFill: 0.08,             // Subtle fill on hover
+      hoverStroke: 0.5             // Medium stroke on hover
+    };
+  };
+
+
+
+const formatFeatureLabel = (feature: Feature): string => {
+    switch (feature) {
+    case 'duration':
+        return 'Duration';
+    case 'loudness':
+        return 'Loudness';
+    case 'tempo':
+        return 'BPM';
+    // case 'key':
+    //   return 'Key';
+    default:
+        return feature.charAt(0).toUpperCase() + feature.slice(1);
+    }
+};
+
 const AudioFeaturesViz: React.FC<AudioFeaturesVizProps> = ({ 
-  width = 600, 
-  height = 600, 
+  width = 900, 
+  height = 800, 
   songs = [] 
 }) => {
   const [hoveredSong, setHoveredSong] = useState<string | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; } | null>(null);
   
-  // Calculate dimensions
-  const radius = Math.min(width, height) / 2 - 100;
-  const centerY = height / 2;
-  const centerX = width / 2;
+  const normalizeValue = (song: Song, feature: Feature): number => {
+    switch (feature) {
+      case 'duration':
+        const maxDuration = 400000;
+        return song.duration_ms / maxDuration;
+      case 'loudness':
+        return (song.loudness + 60) / 60;
+      case 'tempo':
+        return Math.max(0, Math.min(1, (song.tempo - 40) / 160));
+    //   case 'key':
+    //     return song.key / 11;
+      default:
+        return song[feature];
+    }
+  };
 
-  // Create scales
+  const formatValue = (song: Song, feature: Feature): string => {
+    switch (feature) {
+      case 'duration':
+        return `${Math.round(song.duration_ms / 1000)}s`;
+      case 'loudness':
+        return `${song.loudness.toFixed(1)} dB`;
+      case 'tempo':
+        return `${Math.round(song.tempo)} BPM`;
+    //   case 'key':
+    //     const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    //     return keys[song.key] || 'Unknown';
+      default:
+        return `${(song[feature] * 100).toFixed(0)}%`;
+    }
+  };
+  
+  const opacities = getOpacityScale(songs.length);
+  
+  const legendWidth = 240;
+  const graphWidth = width - legendWidth;
+  const radius = Math.min(graphWidth, height) / 2 - 100;
+  const centerY = height / 2;
+  const centerX = graphWidth / 2;
+
   const radialScale = scaleLinear({
     domain: [0, 1],
     range: [0, radius],
   });
 
-  // Calculate angle for each feature
   const angleStep = (2 * Math.PI) / FEATURES.length;
 
-  // Generate points for each song
   const generatePoints = (song: Song) => {
     return FEATURES.map((feature, i) => ({
       feature,
       angle: i * angleStep,
-      radius: radialScale(song[feature]),
+      radius: radialScale(normalizeValue(song, feature)),
     }));
   };
 
-  // Function to generate path coordinates
   const generatePathCoordinates = (song: Song) => {
     const points = generatePoints(song);
-    return points.map((point, i) => {
-      const x = point.radius * Math.cos(point.angle - Math.PI / 2);
-      const y = point.radius * Math.sin(point.angle - Math.PI / 2);
-      return `${i === 0 ? 'M' : 'L'} ${x},${y}`;
-    }).join(' ') + 'Z';
+    const linePoints = points.map((point) => ({
+      x: point.radius * Math.cos(point.angle - Math.PI / 2),
+      y: point.radius * Math.sin(point.angle - Math.PI / 2),
+    }));
+
+    let path = `M ${linePoints[0].x},${linePoints[0].y}`;
+    for (let i = 0; i < linePoints.length; i++) {
+      const current = linePoints[i];
+      const next = linePoints[(i + 1) % linePoints.length];
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      path += ` Q ${current.x},${current.y} ${midX},${midY}`;
+    }
+    path += ' Z';
+    return path;
   };
 
-  // Generate background circles
-  const backgroundCircles = [0.2, 0.4, 0.6, 0.8, 1].map(percentage => {
-    const r = radialScale(percentage);
-    return {
-      radius: r,
-      label: (percentage * 100).toString()
-    };
-  });
+  const handleMouseMove = (event: React.MouseEvent<SVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTooltipPosition({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    });
+  };
+
+  const getColor = (index: number, isHovered: boolean) => {
+    if (isHovered) {
+      return 'rgba(255, 255, 255, 0.95)'; // Almost pure white when hovered
+    }
+    // For non-hovered state, add some intensity
+    const baseColor = COLORS[index % COLORS.length];
+    return baseColor;
+  };
 
   return (
-    <div className="relative w-full h-full">
-      <svg width={width} height={height}>
-        <Group top={centerY} left={centerX}>
-          {/* Background circles */}
-          {backgroundCircles.map(({ radius, label }) => (
-            <g key={radius}>
+    <div className="relative w-full h-full flex">
+      <div className="flex-shrink-0 relative">
+        <svg 
+          width={graphWidth} 
+          height={height} 
+          className="relative bg-gray-900 rounded-lg shadow-lg"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => {
+            setHoveredSong(null);
+            setTooltipPosition(null);
+          }}
+        >
+          <Group top={centerY} left={centerX}>
+            {/* Background circles */}
+            {[0.2, 0.4, 0.6, 0.8, 1].map((percentage) => (
               <circle
-                r={radius}
+                key={percentage}
+                r={radialScale(percentage)}
                 fill="none"
-                stroke="#e2e8f0"
+                stroke="#ffffff10"
                 strokeWidth={1}
-                strokeDasharray="4,4"
               />
-              <text
-                y={-radius}
-                dx="0.5em"
-                dy="0.3em"
-                fontSize={10}
-                fill="#94a3b8"
-              >
-                {label}%
-              </text>
-            </g>
-          ))}
+            ))}
 
-          {/* Axis lines and labels */}
-          {FEATURES.map((feature, i) => {
-            const angle = i * angleStep;
-            const x = radius * Math.cos(angle - Math.PI / 2);
-            const y = radius * Math.sin(angle - Math.PI / 2);
-            return (
-              <g key={feature}>
-                <line
-                  x1={0}
-                  y1={0}
-                  x2={x}
-                  y2={y}
-                  stroke="#e2e8f0"
-                  strokeWidth={1}
-                />
-                <Text
-                  x={x * 1.1}
-                  y={y * 1.1}
-                  textAnchor="middle"
-                  fontSize={12}
-                  fill="#475569"
-                >
-                  {feature}
-                </Text>
-              </g>
-            );
-          })}
+            {/* Axis lines and labels */}
+            {FEATURES.map((feature, i) => {
+              const angle = i * angleStep;
+              const x = radius * Math.cos(angle - Math.PI / 2);
+              const y = radius * Math.sin(angle - Math.PI / 2);
+              return (
+                <g key={feature}>
+                  <line
+                    x1={0}
+                    y1={0}
+                    x2={x}
+                    y2={y}
+                    stroke="#ffffff08"
+                    strokeWidth={1}
+                  />
+                  <Text
+                    x={x * 1.15}
+                    y={y * 1.15}
+                    textAnchor="middle"
+                    fontSize={14}
+                    fill="#ffffff60"
+                    fontFamily="system-ui"
+                  >
+                    {formatFeatureLabel(feature)}
+                  </Text>
+                </g>
+              );
+            })}
 
-          {/* Song paths */}
-          {songs.map((song, index) => {
-            const color = `hsl(${(index * 360) / songs.length}, 70%, 50%)`;
-            const isHovered = hoveredSong === song.id;
-            return (
-              <path
-                key={song.id}
-                d={generatePathCoordinates(song)}
-                fill={color}
-                fillOpacity={isHovered ? 0.6 : 0.3}
-                stroke={color}
-                strokeWidth={isHovered ? 2 : 1}
-                onMouseEnter={() => setHoveredSong(song.id)}
-                onMouseLeave={() => setHoveredSong(null)}
-              />
-            );
-          })}
-        </Group>
-      </svg>
+{songs.map((song, index) => {
+              const isHovered = song.id === hoveredSong;
+              const color = getColor(index, isHovered);
+              
+              return (
+                <g key={song.id} style={{ mixBlendMode: BLEND_MODE }}>
+                  {/* Filled Path */}
+                  <path
+                    d={generatePathCoordinates(song)}
+                    fill={color}
+                    fillOpacity={isHovered ? opacities.hoverFill : opacities.fill}
+                    stroke="transparent"
+                    pointerEvents="none"
+                  />
+                  {/* Hover Detection Path */}
+                  <path
+                    d={generatePathCoordinates(song)}
+                    fill="transparent"
+                    stroke={color}
+                    strokeWidth={12}
+                    strokeOpacity={0}
+                    onMouseEnter={() => setHoveredSong(song.id)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {/* Visible Stroke */}
+                  <path
+                    d={generatePathCoordinates(song)}
+                    fill="transparent"
+                    stroke={color}
+                    strokeWidth={isHovered ? 1 : .5}
+                    strokeOpacity={isHovered ? opacities.hoverStroke : opacities.stroke}
+                    pointerEvents="none"
+                    style={{ mixBlendMode: BLEND_MODE }}
+                  />
+                </g>
+              );
+            })}
+          </Group>
+        </svg>
+
+        {/* Tooltip */}
+        {hoveredSong && tooltipPosition && (
+          <div
+            className="absolute pointer-events-none bg-gray-900/90 px-3 py-2 rounded-lg text-white text-sm shadow-lg"
+            style={{
+              left: tooltipPosition.x + 10,
+              top: tooltipPosition.y + 10,
+              transform: 'translate(0, -50%)'
+            }}
+          >
+            {songs.find(s => s.id === hoveredSong)?.name}
+          </div>
+        )}
+      </div>
 
       {/* Legend */}
-      <div className="absolute top-4 left-4 bg-white p-4 rounded shadow-lg">
-        {songs.map((song, index) => (
-          <div 
-            key={song.id}
-            className={`text-sm text-gray-900 flex items-center gap-2 ${
-              hoveredSong === song.id ? 'font-bold' : ''
-            }`}
-            onMouseEnter={() => setHoveredSong(song.id)}
-            onMouseLeave={() => setHoveredSong(null)}
-          >
-            <div 
-              className="w-3 h-3 rounded-full"
-              style={{ 
-                backgroundColor: `hsl(${(index * 360) / songs.length}, 70%, 50%)`
-              }} 
-            />
-            <span>{song.name}</span>
+      <div className="ml-8 flex-shrink-0 w-60 overflow-y-auto max-h-full">
+        <div className="bg-[#0a0c14] p-4 rounded">
+          <div className="mb-4">
+            <h3 className="font-medium text-gray-300 text-lg">Tracks</h3>
+            <p className="text-sm text-gray-500">Total: {songs.length}</p>
           </div>
-        ))}
+          <div className="space-y-2">
+            {songs.map((song, index) => {
+              const isHovered = hoveredSong === song.id;
+              const color = getColor(index, isHovered);
+              return (
+                <div 
+                  key={song.id}
+                  className={`flex flex-col gap-1 py-2 px-2 rounded transition-colors ${
+                    isHovered ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5'
+                  }`}
+                  onMouseEnter={() => setHoveredSong(song.id)}
+                  onMouseLeave={() => setHoveredSong(null)}
+                >
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: color }} 
+                    />
+                    <span className="truncate font-medium text-sm" title={song.name}>
+                      {song.name}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
