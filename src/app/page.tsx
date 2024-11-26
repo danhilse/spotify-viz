@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { UnifiedSearch } from '@/components/UnifiedSearch';
-import AudioFeaturesViz from '@/components/AudioFeaturesViz';
+import ComparisonViz from '@/components/ComparisonViz';
 import { getSpotifyApi } from '@/lib/spotify';
 
 interface SongWithFeatures {
@@ -22,9 +22,17 @@ interface SongWithFeatures {
 }
 
 export default function Home() {
-  const [songs, setSongs] = useState<SongWithFeatures[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // Left side state
+  const [leftSongs, setLeftSongs] = useState<SongWithFeatures[]>([]);
+  const [leftLoading, setLeftLoading] = useState(false);
+  const [leftError, setLeftError] = useState('');
+  const [leftLabel, setLeftLabel] = useState('Set A');
+
+  // Right side state
+  const [rightSongs, setRightSongs] = useState<SongWithFeatures[]>([]);
+  const [rightLoading, setRightLoading] = useState(false);
+  const [rightError, setRightError] = useState('');
+  const [rightLabel, setRightLabel] = useState('Set B');
 
   const fetchAlbumTracks = async (albumId: string, token: string) => {
     const tracks = [];
@@ -65,7 +73,12 @@ export default function Home() {
     return albums;
   };
 
-  const handleSelect = async (type: 'artist' | 'album', id: string) => {
+  const handleSelect = async (type: 'artist' | 'album', id: string, side: 'left' | 'right') => {
+    const setLoading = side === 'left' ? setLeftLoading : setRightLoading;
+    const setError = side === 'left' ? setLeftError : setRightError;
+    const setSongs = side === 'left' ? setLeftSongs : setRightSongs;
+    const setLabel = side === 'left' ? setLeftLabel : setRightLabel;
+    
     try {
       setLoading(true);
       setError('');
@@ -74,9 +87,14 @@ export default function Home() {
       const token = await spotifyApi.getAccessToken();
 
       let tracks;
+      let label = '';
       
       if (type === 'artist') {
-        // Get all albums first
+        // Get artist name for label
+        const artist = await spotifyApi.artists.get(id);
+        label = artist.name;
+
+        // Get all albums
         const albums = await fetchArtistAlbums(id, token.access_token);
         
         // Get all tracks from each album
@@ -87,7 +105,9 @@ export default function Home() {
         const tracksNestedArray = await Promise.all(trackPromises);
         tracks = tracksNestedArray.flat();
       } else {
-        // For albums, just get tracks from that album
+        // For albums, get album name and tracks
+        const album = await spotifyApi.albums.get(id);
+        label = album.name;
         tracks = await fetchAlbumTracks(id, token.access_token);
       }
 
@@ -135,6 +155,7 @@ export default function Home() {
       });
 
       setSongs(songsWithFeatures);
+      setLabel(label);
 
     } catch (err) {
       console.error('Error details:', err);
@@ -146,33 +167,56 @@ export default function Home() {
 
   return (
     <main className="min-h-screen p-8 bg-gray-900 text-white">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <UnifiedSearch 
-            onSelect={handleSelect}
-            isLoading={loading}
-          />
+      <div className="flex flex-col gap-8" style={{ maxWidth: '1600px', margin: '0 auto' }}>
+        {/* Search Container */}
+        <div className="flex justify-between">
+          {/* Left Search */}
+          <div className="w-[400px]">
+            <h2 className="text-xl font-semibold mb-4 text-gray-300">First Artist/Album</h2>
+            <UnifiedSearch 
+              onSelect={(type, id) => handleSelect(type, id, 'left')}
+              isLoading={leftLoading}
+            />
+            {leftError && (
+              <div className="text-red-400 mt-2">{leftError}</div>
+            )}
+          </div>
+
+          {/* Right Search */}
+          <div className="w-[400px]">
+            <h2 className="text-xl font-semibold mb-4 text-gray-300">Second Artist/Album</h2>
+            <UnifiedSearch 
+              onSelect={(type, id) => handleSelect(type, id, 'right')}
+              isLoading={rightLoading}
+            />
+            {rightError && (
+              <div className="text-red-400 mt-2">{rightError}</div>
+            )}
+          </div>
         </div>
 
-        {error && (
-          <div className="text-red-400 mb-4">{error}</div>
-        )}
-
-        {!loading && songs.length > 0 && (
-          <div>
-            <h2 className="text-2xl font-semibold mb-4 text-gray-300">Audio Features Analysis</h2>
-            <p className="mb-4 text-gray-400">
-              Showing analysis for {songs.length} unique songs
+        {/* Visualization Container */}
+        <div className="flex flex-col">
+          {/* <div className="text-center mb-4">
+            <h2 className="text-2xl font-semibold mb-2 text-gray-300">Audio Features Comparison</h2>
+            <p className="text-gray-400">
+              {leftSongs.length > 0 && rightSongs.length > 0 ? (
+                `Comparing ${leftSongs.length} songs from ${leftLabel} with ${rightSongs.length} songs from ${rightLabel}`
+              ) : (
+                'Search for artists or albums above to compare their audio features'
+              )}
             </p>
-            <div className="w-full aspect-square">
-              <AudioFeaturesViz
-                songs={songs}
-                width={1200}
-                height={800}
-              />
-            </div>
-          </div>
-        )}
+          </div> */}
+          
+          <ComparisonViz
+            leftSongs={leftSongs}
+            rightSongs={rightSongs}
+            leftLabel={leftLabel}
+            rightLabel={rightLabel}
+            width={1500}
+            height={700}
+          />
+        </div>
       </div>
     </main>
   );
