@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Group } from '@visx/group';
 import { scaleLinear } from '@visx/scale';
 import { Text } from '@visx/text';
-// import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
+ 
 interface Song {
   id: string;
   name: string;
