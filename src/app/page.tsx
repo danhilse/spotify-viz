@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState } from 'react';
 import { UnifiedSearch } from '@/components/UnifiedSearch';
 import ComparisonViz from '@/components/ComparisonViz';
@@ -243,3 +245,4 @@ export default function Home() {
     </main>
   );
 }
+
