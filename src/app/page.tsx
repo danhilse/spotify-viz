@@ -2,21 +2,19 @@
 'use client';
 
 import { useState } from 'react';
-import { ArtistSearch } from '@/components/ArtistSearch';
+import { UnifiedSearch } from '@/components/UnifiedSearch';
 import AudioFeaturesViz from '@/components/AudioFeaturesViz';
 import { getSpotifyApi } from '@/lib/spotify';
 
 interface SongWithFeatures {
   id: string;
   name: string;
-  // Audio features
   acousticness: number;
   danceability: number;
   energy: number;
   instrumentalness: number;
   liveness: number;
   valence: number;
-  // Audio analysis
   duration_ms: number;
   loudness: number;
   tempo: number;
@@ -49,7 +47,25 @@ export default function Home() {
     }));
   };
 
-  const fetchArtistData = async (artistId: string) => {
+  const fetchArtistAlbums = async (artistId: string, token: string) => {
+    const albums = [];
+    let url = `https://api.spotify.com/v1/artists/${artistId}/albums?limit=50`;
+    
+    while (url) {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      albums.push(...data.items);
+      url = data.next;
+    }
+    
+    return albums;
+  };
+
+  const handleSelect = async (type: 'artist' | 'album', id: string) => {
     try {
       setLoading(true);
       setError('');
@@ -57,28 +73,27 @@ export default function Home() {
       const spotifyApi = await getSpotifyApi();
       const token = await spotifyApi.getAccessToken();
 
-      // Get albums
-      const albumsResponse = await fetch(
-        `https://api.spotify.com/v1/artists/${artistId}/albums?limit=50`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token.access_token}`
-          }
-        }
-      );
-      const albumsData = await albumsResponse.json();
+      let tracks;
+      
+      if (type === 'artist') {
+        // Get all albums first
+        const albums = await fetchArtistAlbums(id, token.access_token);
+        
+        // Get all tracks from each album
+        const trackPromises = albums.map(album => 
+          fetchAlbumTracks(album.id, token.access_token)
+        );
+        
+        const tracksNestedArray = await Promise.all(trackPromises);
+        tracks = tracksNestedArray.flat();
+      } else {
+        // For albums, just get tracks from that album
+        tracks = await fetchAlbumTracks(id, token.access_token);
+      }
 
-      // Get all tracks from each album
-      const trackPromises = albumsData.items.map(album => 
-        fetchAlbumTracks(album.id, token.access_token)
-      );
-      
-      const tracksNestedArray = await Promise.all(trackPromises);
-      const allTracks = tracksNestedArray.flat();
-      
       // Remove duplicates based on track ID
       const uniqueTracks = Array.from(
-        new Map(allTracks.map(track => [track.id, track])).values()
+        new Map(tracks.map(track => [track.id, track])).values()
       );
 
       // Get audio features and analysis in batches of 100 (API limit)
@@ -92,7 +107,7 @@ export default function Home() {
         const features = await spotifyApi.tracks.audioFeatures(trackIds);
         audioFeaturesBatches.push(features);
 
-        // Get additional track details including duration and loudness
+        // Get additional track details
         const trackDetails = await fetch(
           `https://api.spotify.com/v1/tracks?ids=${trackIds.join(',')}`,
           {
@@ -123,7 +138,7 @@ export default function Home() {
 
     } catch (err) {
       console.error('Error details:', err);
-      setError('Error fetching artist data. Please try again.');
+      setError('Error fetching data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -132,10 +147,9 @@ export default function Home() {
   return (
     <main className="min-h-screen p-8 bg-gray-900 text-white">
       <div className="max-w-7xl mx-auto">
-        
         <div className="mb-8">
-          <ArtistSearch 
-            onArtistSelect={fetchArtistData}
+          <UnifiedSearch 
+            onSelect={handleSelect}
             isLoading={loading}
           />
         </div>

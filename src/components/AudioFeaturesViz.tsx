@@ -29,7 +29,7 @@ const FEATURES = [
   'danceability',
   'energy',
   'acousticness',
-  'instrumentalness',
+//   'instrumentalness',
   'loudness',
   'valence',
 //   'liveness',
@@ -94,7 +94,7 @@ const AudioFeaturesViz: React.FC<AudioFeaturesVizProps> = ({
   const normalizeValue = (song: Song, feature: Feature): number => {
     switch (feature) {
       case 'duration':
-        const maxDuration = 400000;
+        const maxDuration = 300000;
         return song.duration_ms / maxDuration;
       case 'loudness':
         return (song.loudness + 60) / 60;
