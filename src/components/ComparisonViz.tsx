@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Group } from '@visx/group';
 import { scaleLinear } from '@visx/scale';
 import { Text } from '@visx/text';
@@ -38,28 +38,46 @@ const FEATURES = [
   'duration',
 ] as const;
 
-// Warm vs Cool color palettes
+type Feature = (typeof FEATURES)[number];
+
+// Helper functions moved to top level
+const normalizeValue = (song: Song | Record<Feature, number>, feature: Feature): number => {
+    switch (feature) {
+      case 'duration':
+        const maxDuration = 300000;
+        return (song as Song).duration_ms ? (song as Song).duration_ms / maxDuration : song[feature];
+      case 'loudness':
+        const value = (song as Song).loudness ?? song[feature];
+        return (value + 60) / 60;
+      case 'tempo':
+        // Most popular music is between 60-180 BPM
+        // Center the range more realistically
+        const tempo = (song as Song).tempo ?? song[feature];
+        return Math.max(0, Math.min(1, (tempo - 60) / 120));
+      default:
+        return (song as Song)[feature] ?? song[feature];
+    }
+  };
+  
+
+// Color palettes
 const LEFT_COLORS = [
+  '#FF3366', // Brighter pink-red
   '#FF6B6B', // Coral red
   '#FF8E72', // Salmon
-  '#FFA07A', // Light salmon
 ];
 
 const RIGHT_COLORS = [
-  '#4169E1', // Royal blue
-  '#6495ED', // Cornflower blue
-  '#87CEEB', // Sky blue
+  '#4A90E2', // Bright blue
+  '#2E5EAA', // Medium blue
+  '#1E3D59', // Dark blue
 ];
 
-type Feature = (typeof FEATURES)[number];
-type BlendMode = 'screen' | 'plus-lighter' | 'lighten' | 'overlay' | 'multiply';
-const BLEND_MODE: BlendMode = 'screen';
-
 const getOpacityScale = (numTracks: number) => {
-  const baseOpacity = Math.max(0.008, 1 / Math.pow(numTracks, 0.6));
+  const baseOpacity = Math.max(0.004, 1 / Math.pow(numTracks, 0.5));
   return {
-    fill: baseOpacity * 0.3,
-    stroke: baseOpacity * 1,
+    fill: baseOpacity * 0.04,
+    stroke: baseOpacity * 4,
     hoverFill: 0.08,
     hoverStroke: 0.5
   };
@@ -79,35 +97,20 @@ const formatFeatureLabel = (feature: Feature): string => {
 };
 
 const ComparisonViz: React.FC<ComparisonVizProps> = ({
-    width = 900,
-    height = 800,
-    leftSongs = [],
-    rightSongs = [],
-    leftLabel = "Set A",
-    rightLabel = "Set B"
-  }) => {
-    const [hoveredSong, setHoveredSong] = useState<string | null>(null);
-    const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; } | null>(null);
-  
-    const legendWidth = 240;
-    const graphWidth = 800; // Fixed graph width
-    const radius = Math.min(graphWidth, height) / 2 - 60;
-    const centerY = height / 2;
-    const centerX = graphWidth / 2;
+  width = 900,
+  height = 800,
+  leftSongs = [],
+  rightSongs = [],
+  leftLabel = "Set A",
+  rightLabel = "Set B"
+}) => {
+  const [hoveredSong, setHoveredSong] = useState<string | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; } | null>(null);
 
-  const normalizeValue = (song: Song, feature: Feature): number => {
-    switch (feature) {
-      case 'duration':
-        const maxDuration = 300000;
-        return song.duration_ms / maxDuration;
-      case 'loudness':
-        return (song.loudness + 60) / 60;
-      case 'tempo':
-        return Math.max(0, Math.min(1, (song.tempo - 40) / 160));
-      default:
-        return song[feature];
-    }
-  };
+  const graphWidth = 800;
+  const radius = Math.min(graphWidth, height) / 2 - 60;
+  const centerY = height / 2;
+  const centerX = graphWidth / 2;
 
   const radialScale = scaleLinear({
     domain: [0, 1],
@@ -116,7 +119,7 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
 
   const angleStep = (2 * Math.PI) / FEATURES.length;
 
-  const generatePoints = (song: Song) => {
+  const generatePoints = (song: Song | Record<Feature, number>) => {
     return FEATURES.map((feature, i) => ({
       feature,
       angle: i * angleStep,
@@ -124,7 +127,7 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
     }));
   };
 
-  const generatePathCoordinates = (song: Song) => {
+  const generatePathCoordinates = (song: Song | Record<Feature, number>) => {
     const points = generatePoints(song);
     const linePoints = points.map((point) => ({
       x: point.radius * Math.cos(point.angle - Math.PI / 2),
@@ -143,6 +146,33 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
     return path;
   };
 
+  // Calculate average paths
+
+  // Modify getAveragePath to normalize after averaging
+  const getAveragePath = (songs: Song[]) => {
+    if (!songs.length) return null;
+    
+    // For tempo, calculate average before normalization
+    const tempoAvg = songs.reduce((sum, song) => sum + song.tempo, 0) / songs.length;
+    
+    const averages = FEATURES.reduce((acc, feature) => {
+      if (feature === 'tempo') {
+        // Use the raw average for tempo
+        acc[feature] = tempoAvg;
+      } else {
+        // For other features, use normalized values
+        const sum = songs.reduce((s, song) => s + normalizeValue(song, feature), 0);
+        acc[feature] = sum / songs.length;
+      }
+      return acc;
+    }, {} as Record<Feature, number>);
+  
+    return generatePathCoordinates(averages);
+  };
+
+  const leftAverage = useMemo(() => getAveragePath(leftSongs), [leftSongs]);
+  const rightAverage = useMemo(() => getAveragePath(rightSongs), [rightSongs]);
+
   const handleMouseMove = (event: React.MouseEvent<SVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setTooltipPosition({
@@ -159,13 +189,10 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
     return colors[index % colors.length];
   };
 
-  const leftOpacities = getOpacityScale(leftSongs.length);
-  const rightOpacities = getOpacityScale(rightSongs.length);
-
   return (
     <div className="w-full flex justify-center">
       <div className="flex items-start gap-8" style={{ width: '1400px' }}>
-        {/* Left Legend - Fixed width */}
+        {/* Left Legend */}
         <div className="w-60 flex-shrink-0 pl-8">
           <div className="bg-[#0a0c14] p-4 rounded">
             <div className="mb-4">
@@ -190,7 +217,7 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
           </div>
         </div>
 
-        {/* Center Graph - Fixed width */}
+        {/* Center Graph */}
         <div className="flex-shrink-0 relative">
           <svg 
             width={graphWidth} 
@@ -203,74 +230,104 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
             }}
           >
             <Group top={centerY} left={centerX}>
-            {/* Background circles and axis lines remain the same */}
-            {[0.2, 0.4, 0.6, 0.8, 1].map((percentage) => (
-              <circle
-                key={percentage}
-                r={radialScale(percentage)}
-                fill="none"
-                stroke="#ffffff10"
-                strokeWidth={1}
-              />
-            ))}
+              {/* Background circles */}
+              {[0.2, 0.4, 0.6, 0.8, 1].map((percentage) => (
+                <circle
+                  key={percentage}
+                  r={radialScale(percentage)}
+                  fill="none"
+                  stroke="#ffffff10"
+                  strokeWidth={1}
+                />
+              ))}
 
-            {/* Axis lines and labels */}
-            {FEATURES.map((feature, i) => {
-              const angle = i * angleStep;
-              const x = radius * Math.cos(angle - Math.PI / 2);
-              const y = radius * Math.sin(angle - Math.PI / 2);
-              return (
-                <g key={feature}>
-                  <line
-                    x1={0}
-                    y1={0}
-                    x2={x}
-                    y2={y}
-                    stroke="#ffffff08"
-                    strokeWidth={1}
+              {/* Axis lines and labels */}
+              {FEATURES.map((feature, i) => {
+                const angle = i * angleStep;
+                const x = radius * Math.cos(angle - Math.PI / 2);
+                const y = radius * Math.sin(angle - Math.PI / 2);
+                return (
+                  <g key={feature}>
+                    <line
+                      x1={0}
+                      y1={0}
+                      x2={x}
+                      y2={y}
+                      stroke="#ffffff08"
+                      strokeWidth={1}
+                    />
+                    <Text
+                      x={x * 1.15}
+                      y={y * 1.15}
+                      textAnchor="middle"
+                      fontSize={14}
+                      fill="#ffffff60"
+                      fontFamily="system-ui"
+                    >
+                      {formatFeatureLabel(feature)}
+                    </Text>
+                  </g>
+                );
+              })}
+
+              {/* Left songs with soft-light blend */}
+              <g style={{ mixBlendMode: 'lighten' }}>
+                {leftSongs.map((song, index) => (
+                  <SongPath
+                    key={song.id}
+                    song={song}
+                    index={index}
+                    isLeft={true}
+                    isHovered={hoveredSong === song.id}
+                    onHover={setHoveredSong}
+                    generatePathCoordinates={generatePathCoordinates}
+                    getColor={getColor}
+                    opacities={getOpacityScale(leftSongs.length)}
                   />
-                  <Text
-                    x={x * 1.15}
-                    y={y * 1.15}
-                    textAnchor="middle"
-                    fontSize={14}
-                    fill="#ffffff60"
-                    fontFamily="system-ui"
-                  >
-                    {formatFeatureLabel(feature)}
-                  </Text>
-                </g>
-              );
-            })}
+                ))}
+              </g>
 
-            {/* Song paths */}
-            {leftSongs.map((song, index) => (
-              <SongPath
-                key={song.id}
-                song={song}
-                index={index}
-                isLeft={true}
-                isHovered={hoveredSong === song.id}
-                onHover={setHoveredSong}
-                generatePathCoordinates={generatePathCoordinates}
-                getColor={getColor}
-                opacities={getOpacityScale(leftSongs.length)}
-              />
-            ))}
+              {/* Right songs with screen blend */}
+              <g style={{ mixBlendMode: 'lighten' }}>
+                {rightSongs.map((song, index) => (
+                  <SongPath
+                    key={song.id}
+                    song={song}
+                    index={index}
+                    isLeft={false}
+                    isHovered={hoveredSong === song.id}
+                    onHover={setHoveredSong}
+                    generatePathCoordinates={generatePathCoordinates}
+                    getColor={getColor}
+                    opacities={getOpacityScale(rightSongs.length)}
+                  />
+                ))}
+              </g>
 
-            {rightSongs.map((song, index) => (
-              <SongPath
-                key={song.id}
-                song={song}
-                index={index}
-                isLeft={false}
-                isHovered={hoveredSong === song.id}
-                onHover={setHoveredSong}
-                generatePathCoordinates={generatePathCoordinates}
-                getColor={getColor}
-                opacities={getOpacityScale(rightSongs.length)}
-              />
-            ))}
+              {/* Average paths */}
+              {leftAverage && (
+                <path
+                  d={leftAverage}
+                  fill="none"
+                  stroke="#FF3366"
+                  strokeWidth={.45}
+                  strokeOpacity={0.6}
+                //   strokeDasharray="4,4"
+                  pointerEvents="none"
+                />
+              )}
+
+              {rightAverage && (
+                <path
+                  d={rightAverage}
+                  fill="none"
+                  stroke="#4A90E2"
+                  strokeWidth={.45}
+                  strokeOpacity={0.6}
+                //   strokeDasharray="4,4"
+                  pointerEvents="none"
+                />
+              )}
             </Group>
           </svg>
 
@@ -289,7 +346,7 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
           )}
         </div>
 
-        {/* Right Legend - Fixed width */}
+        {/* Right Legend */}
         <div className="w-60 flex-shrink-0 pr-8">
           <div className="bg-[#0a0c14] p-4 rounded">
             <div className="mb-4">
@@ -318,7 +375,7 @@ const ComparisonViz: React.FC<ComparisonVizProps> = ({
   );
 };
 
-// Helper components for cleaner rendering
+// Helper components
 const SongLegendItem = ({ song, index, isLeft, isHovered, onHover, getColor }) => (
   <div 
     className={`flex flex-col gap-1 py-2 px-2 rounded transition-colors ${
@@ -340,7 +397,7 @@ const SongLegendItem = ({ song, index, isLeft, isHovered, onHover, getColor }) =
 );
 
 const SongPath = ({ song, index, isLeft, isHovered, onHover, generatePathCoordinates, getColor, opacities }) => (
-  <g style={{ mixBlendMode: BLEND_MODE }}>
+  <g>
     <path
       d={generatePathCoordinates(song)}
       fill={getColor(index, isLeft, isHovered)}
@@ -352,7 +409,7 @@ const SongPath = ({ song, index, isLeft, isHovered, onHover, generatePathCoordin
       d={generatePathCoordinates(song)}
       fill="transparent"
       stroke={getColor(index, isLeft, isHovered)}
-      strokeWidth={12}
+      strokeWidth={8}
       strokeOpacity={0}
       onMouseEnter={() => onHover(song.id)}
       style={{ cursor: 'pointer' }}
